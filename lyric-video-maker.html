@@ -104,7 +104,7 @@ details summary{cursor:pointer;color:var(--acc);padding:4px 0}
 
   <div class="card">
     <h2>Lyrics</h2>
-    <p class="mut" style="margin:0 0 6px">One line per row. A <b>blank line</b> starts a new stanza. Hebrew with nikud mixed with English is fine.</p>
+    <p class="mut" style="margin:0 0 6px">One line per row. A <b>blank line</b> starts a new stanza. Hebrew with nikud mixed with English is fine. Lines with English show left-to-right, pure Hebrew right-to-left. To force a line, start it with <b>{ltr}</b> or <b>{rtl}</b>.</p>
     <textarea id="lyrics" dir="auto" spellcheck="false" placeholder="Line one&#10;Line two&#10;&#10;New stanza…"></textarea>
     <div class="mut" id="lyricsInfo" style="margin-top:6px"></div>
   </div>
@@ -241,10 +241,12 @@ const dirOf = s => hasLatin(s) ? 'ltr' : (hasHeb(s) ? 'rtl' : 'ltr');
 function parseLyrics(raw) {
   const out = []; let st = 0, brk = false;
   for (const l of String(raw).replace(/\r/g, '').split('\n')) {
-    const t = l.replace(BIDI, '').trim();
+    let t = l.replace(BIDI, '').trim(), dir = null;
+    const m = t.match(/^\{(ltr|rtl)\}\s*/i);   // optional per-line override
+    if (m) { dir = m[1].toLowerCase(); t = t.slice(m[0].length); }
     if (!t) { if (out.length) brk = true; continue; }
     if (brk) { st++; brk = false; }
-    out.push({ text: t, st, time: null });
+    out.push({ text: t, st, time: null, dir });
   }
   return out;
 }
@@ -501,7 +503,7 @@ function layoutStanza(s) {
     const font = '500 ' + size + 'px ' + fontStack(), lh = size * 1.42, gap = size * 0.45;
     let H = 0, ok = true; const items = [];
     for (const i of idxs) {
-      const text = S.lines[i].text, dir = dirOf(text), v = wrapText(text, font, MAXW, dir);
+      const text = S.lines[i].text, dir = S.lines[i].dir || dirOf(text), v = wrapText(text, font, MAXW, dir);
       mctx.font = font; mctx.direction = dir;
       if (v.some(x => mctx.measureText(x).width > MAXW + 1)) ok = false;
       items.push({ idx: i, v, dir, h: v.length * lh });
@@ -734,7 +736,7 @@ function renderList() {
     r.innerHTML = '<span class="n"></span><span class="tm"></span><span class="tx" dir="auto"></span>';
     r.children[0].textContent = i + 1;
     r.children[1].textContent = l.time == null ? '—' : fmtTime(l.time);
-    r.children[2].textContent = l.text;
+    r.children[2].textContent = l.text; r.children[2].dir = l.dir || dirOf(l.text);
     list.appendChild(r);
     if (i === selIdx) {
       const a = document.createElement('div'); a.className = 'acts'; a.dataset.i = i;
@@ -773,6 +775,8 @@ function updateSyncLive(force) {
     const n = S.nextIdx;
     $('#nxCur').textContent = n < S.lines.length ? S.lines[n].text : (S.lines.length ? '✓ All lines timed' : 'Add lyrics in step 1');
     $('#nxNext').textContent = n + 1 < S.lines.length ? S.lines[n + 1].text : '';
+    const dd = i => i < S.lines.length ? (S.lines[i].dir || dirOf(S.lines[i].text)) : 'ltr';
+    $('#nxCur').dir = dd(n); $('#nxNext').dir = dd(n + 1);
     $('#tapSub').textContent = n < S.lines.length ? 'line ' + (n + 1) + ' of ' + S.lines.length : 'done';
   }
   // highlight what is being sung now
