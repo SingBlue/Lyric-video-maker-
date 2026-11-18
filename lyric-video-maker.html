@@ -104,8 +104,8 @@ details summary{cursor:pointer;color:var(--acc);padding:4px 0}
 
   <div class="card">
     <h2>Lyrics</h2>
-    <p class="mut" style="margin:0 0 6px">One line per row. A <b>blank line</b> starts a new stanza. Hebrew with nikud mixed with English is fine. Lines with English show left-to-right, pure Hebrew right-to-left. To force a line, start it with <b>{ltr}</b> or <b>{rtl}</b>.</p>
-    <textarea id="lyrics" dir="auto" spellcheck="false" placeholder="Line one&#10;Line two&#10;&#10;New stanza…"></textarea>
+    <p class="mut" style="margin:0 0 6px">One line per row. A <b>blank line</b> starts a new stanza. Hebrew with nikud mixed with English is fine. Lines with English show left-to-right, pure Hebrew right-to-left. To force a line, add <b>{ltr}</b> or <b>{rtl}</b> anywhere in it (usually not needed).</p>
+    <textarea id="lyrics" dir="ltr" spellcheck="false" placeholder="Line one&#10;Line two&#10;&#10;New stanza…"></textarea>
     <div class="mut" id="lyricsInfo" style="margin-top:6px"></div>
   </div>
 
@@ -242,8 +242,8 @@ function parseLyrics(raw) {
   const out = []; let st = 0, brk = false;
   for (const l of String(raw).replace(/\r/g, '').split('\n')) {
     let t = l.replace(BIDI, '').trim(), dir = null;
-    const m = t.match(/^\{(ltr|rtl)\}\s*/i);   // optional per-line override
-    if (m) { dir = m[1].toLowerCase(); t = t.slice(m[0].length); }
+    const m = t.match(/\{(ltr|rtl)\}/i);   // optional per-line override, anywhere in the line
+    if (m) { dir = m[1].toLowerCase(); t = t.replace(/\s*\{(ltr|rtl)\}\s*/gi, ' ').trim(); }
     if (!t) { if (out.length) brk = true; continue; }
     if (brk) { st++; brk = false; }
     out.push({ text: t, st, time: null, dir });
