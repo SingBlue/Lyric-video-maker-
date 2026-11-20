@@ -63,13 +63,14 @@ button:disabled{opacity:.4}
 .acts{display:flex;flex-wrap:wrap;gap:6px;padding:6px 10px 10px;background:#2b2520;border-bottom:1px solid #1d1914}
 .acts button{padding:6px 9px;font-size:13px}
 /* preview */
-.stage{width:100%;max-width:540px;margin:0 auto;aspect-ratio:1/1;background:#000;border-radius:10px;overflow:hidden;display:block}
+.stage{width:100%;max-width:540px;margin:0 auto;aspect-ratio:1/1;transition:none;background:#000;border-radius:10px;overflow:hidden;display:block}
 .stage canvas{width:100%;height:100%;display:block}
 .bar{height:10px;border-radius:6px;background:#120f0c;overflow:hidden;margin:8px 0}
 .bar>i{display:block;height:100%;width:0;background:var(--acc)}
 video{width:100%;max-width:540px;display:block;margin:8px auto;border-radius:10px;background:#000}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#000c;color:#fff;padding:10px 16px;border-radius:20px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:20;max-width:90vw;text-align:center}
 #toast.on{opacity:1}
+input.clr{width:100%;height:46px;padding:3px;background:#120f0c;border:1px solid #3a322b;border-radius:10px}
 details summary{cursor:pointer;color:var(--acc);padding:4px 0}
 </style>
 </head>
@@ -185,6 +186,23 @@ details summary{cursor:pointer;color:var(--acc);padding:4px 0}
   </div>
 
   <div class="card">
+    <h2>Picture &amp; text colors</h2>
+    <label>Background</label>
+    <select id="optBg"><option value="clear">Clear picture (sharp, like the original)</option><option value="blur">Blurred &amp; dark</option></select>
+    <div id="picDimRow"><label>Darken the picture while words show: <span id="picDimV"></span></label><input type="range" id="optPicDim" min="0" max="0.6" step="0.05"></div>
+    <label>Panel behind the words</label>
+    <select id="optPanel"><option value="box">One box per stanza</option><option value="lines">A bar behind each line</option><option value="none">No panel</option></select>
+    <div class="row2">
+      <div><label>Panel color</label><input type="color" id="optPanelColor" class="clr"></div>
+      <div><label>Letter color</label><input type="color" id="optTextColor" class="clr"></div>
+    </div>
+    <label>Panel opacity: <span id="panelAV"></span></label>
+    <input type="range" id="optPanelA" min="0" max="1" step="0.05">
+    <label>Quick looks</label>
+    <div class="chips" id="presets"></div>
+  </div>
+
+  <div class="card">
     <h2>Look &amp; timing</h2>
     <label>Font</label>
     <select id="fontSel"></select>
@@ -208,9 +226,10 @@ details summary{cursor:pointer;color:var(--acc);padding:4px 0}
   <div class="card">
     <h2>Render MP4</h2>
     <div class="row2">
-      <div><label>Size</label><select id="rRes"><option value="1080">1080 × 1080</option><option value="720">720 × 720 (lighter, phones)</option></select></div>
+      <div><label>Shape</label><select id="rShape"><option value="sq">Square 1:1</option><option value="wide">Wide 16:9 (YouTube)</option></select></div>
       <div><label>Frame rate</label><select id="rFps"><option value="30">30 fps</option><option value="24">24 fps</option></select></div>
     </div>
+    <div class="row2" style="margin-top:8px"><div><label>Quality</label><select id="rRes"><option value="1080">Full (1080)</option><option value="720">Lighter (720, phones)</option></select></div><div></div></div>
     <div class="row2" style="margin-top:8px"><div><label>File size</label><select id="rQual"><option value="n">Normal</option><option value="s">Small (about half)</option></select></div><div></div></div>
     <div class="mut" id="rFormat" style="margin-top:6px"></div>
     <div class="btns"><button class="pri" id="rGo">● Render video</button><button id="rCancel" style="display:none" class="dng">Cancel</button></div>
@@ -349,7 +368,7 @@ const aud = $('#aud');
 const S = {
   title: '', artist: 'Songs of Wisdom · Jonathan Sigal', credit: '', email: '',
   lyrics: '', lines: [], nextIdx: 0,
-  opt: { font: 'classic', size: 60, dim: 0.5, introHold: 3, outroStart: null, outroLen: 6, lastHold: 8, offset: 0.12 }
+  opt: { shape: 'sq', bgMode: 'clear', picDim: 0, panel: 'box', panelColor: '#000000', panelAlpha: 0.55, textColor: '#fff4dc', font: 'classic', size: 60, dim: 0.5, introHold: 3, outroStart: null, outroLen: 6, lastHold: 8, offset: 0.12 }
 };
 let audioBlob = null, audioName = '', audioUrl = null, duration = 0;
 let coverBlob = null, coverImg = null, coverC = null, bgC = null, coverName = '';
@@ -362,6 +381,7 @@ const FONTS = {
   hebfirst: { label: 'Noto Serif Hebrew first', stack: '"Noto Serif Hebrew","EB Garamond","David","FreeSerif","Times New Roman",serif' },
   system: { label: 'System: David / FreeSerif / Times', stack: '"David","David CLM","Taamey David CLM","FreeSerif","Times New Roman",serif' }
 };
+const designW = () => S.opt.shape === 'wide' ? 1920 : 1080;   // design space is designW x 1080
 const fontStack = () => (customFont ? '"' + customFont + '",' : '') + FONTS[S.opt.font].stack;
 
 function toast(msg, ms = 2200) {
@@ -416,7 +436,7 @@ function loadProject(o) {
   if (o.lyrics != null) S.lyrics = o.lyrics;
   S.lines = parseLyrics(S.lyrics);
   if (o.lines) carryTimes(o.lines.map((l, i) => ({ text: l.text, time: l.time })), S.lines);
-  afterLinesChanged(); fillUI();
+  afterLinesChanged(); fillUI(); applyShape();
 }
 
 /* =========================================================
@@ -462,23 +482,26 @@ const getT = () => _T || (_T = computeT());
    ASSETS: cover crop + blurred background
    ========================================================= */
 const mk = n => { const c = document.createElement('canvas'); c.width = c.height = n; return c; };
-function cropDraw(ctx, img, size, zoom) {
-  const iw = img.naturalWidth, ih = img.naturalHeight, side = Math.min(iw, ih) / zoom;
+function cropDraw(ctx, img, w, h, zoom) {   // centered crop with the target's aspect ratio
+  const iw = img.naturalWidth, ih = img.naturalHeight, asp = w / h;
+  const rw = Math.min(iw, ih * asp) / zoom, rh = rw / asp;
   ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(img, (iw - side) / 2, (ih - side) / 2, side, side, 0, 0, size, size);
+  ctx.drawImage(img, (iw - rw) / 2, (ih - rh) / 2, rw, rh, 0, 0, w, h);
 }
 function buildAssets() {
   if (!coverImg) { coverC = bgC = null; return; }
-  coverC = mk(1080); cropDraw(coverC.getContext('2d'), coverImg, 1080, 1);
+  coverC = mk(1080); cropDraw(coverC.getContext('2d'), coverImg, 1080, 1080, 1);
+  const DW = designW(), a = DW / 1080;
+  const mkr = (w, hh) => { const c = document.createElement('canvas'); c.width = w; c.height = hh; return c; };
   // blurred crop: step down, then step up (works everywhere, no ctx.filter needed)
-  let c = mk(256); cropDraw(c.getContext('2d'), coverImg, 256, 1.6);
-  for (const s of [64, 40]) { const n = mk(s), x = n.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(c, 0, 0, s, s); c = n; }
-  for (const s of [80, 160, 320, 640, 1080]) { const n = mk(s), x = n.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(c, 0, 0, s, s); c = n; }
+  let c = mkr(Math.round(256 * a), 256); cropDraw(c.getContext('2d'), coverImg, c.width, c.height, 1.6);
+  for (const s of [64, 40]) { const n = mkr(Math.round(s * a), s), x = n.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(c, 0, 0, n.width, n.height); c = n; }
+  for (const s of [80, 160, 320, 640, 1080]) { const n = mkr(Math.round(s * a), s), x = n.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(c, 0, 0, n.width, n.height); c = n; }
   const x = c.getContext('2d');
-  x.fillStyle = 'rgba(8,6,4,0.64)'; x.fillRect(0, 0, 1080, 1080);
-  const g = x.createRadialGradient(540, 540, 300, 540, 540, 820);
+  x.fillStyle = 'rgba(8,6,4,0.64)'; x.fillRect(0, 0, c.width, c.height);
+  const g = x.createRadialGradient(c.width / 2, 540, 300, c.width / 2, 540, Math.max(820, Math.hypot(c.width / 2, 540) * 0.95));
   g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.5)');
-  x.fillStyle = g; x.fillRect(0, 0, 1080, 1080);
+  x.fillStyle = g; x.fillRect(0, 0, c.width, c.height);
   bgC = c;
 }
 
@@ -498,7 +521,7 @@ function wrapText(text, font, maxW, dir) {
 }
 function layoutStanza(s) {
   const idxs = []; S.lines.forEach((l, i) => { if (l.st === s) idxs.push(i); });
-  const MAXW = 900, MAXH = 800;
+  const MAXW = designW() > 1080 ? 1500 : 880, MAXH = 800;
   let size = S.opt.size, res = null;
   for (; size >= 28; size -= 2) {
     const font = '500 ' + size + 'px ' + fontStack(), lh = size * 1.42, gap = size * 0.45;
@@ -507,11 +530,11 @@ function layoutStanza(s) {
       const text = S.lines[i].text, dir = S.lines[i].dir || dirOf(text), v = wrapText(text, font, MAXW, dir);
       mctx.font = font; mctx.direction = dir;
       if (v.some(x => mctx.measureText(x).width > MAXW + 1)) ok = false;
-      items.push({ idx: i, v, dir, h: v.length * lh });
+      items.push({ idx: i, v, dir, h: v.length * lh, ws: v.map(x => mctx.measureText(x).width) });
       H += v.length * lh;
     }
     H += gap * (idxs.length - 1);
-    res = { font, size, lh, gap, H, items, lastIdx: idxs[idxs.length - 1] };
+    res = { font, size, lh, gap, H, items, lastIdx: idxs[idxs.length - 1], maxLineW: Math.max(...items.map(it => Math.max(...it.ws))) };
     if (ok && H <= MAXH) break;
   }
   let y = 540 - res.H / 2;
@@ -529,30 +552,49 @@ function coverAlpha(t, T) {
   if (t < T.fadeStart) return 1;
   return 1 - ease(clamp01((t - T.fadeStart) / T.fadeDur));
 }
+function rrect(ctx, x, y, w, hh, r) {
+  r = Math.min(r, w / 2, hh / 2);
+  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + hh, r); ctx.arcTo(x + w, y + hh, x, y + hh, r);
+  ctx.arcTo(x, y + hh, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+}
 function drawStanza(ctx, s, t, T, alpha) {
-  const L = getLayout(s);
+  const L = getLayout(s), DW = designW(), cx = DW / 2, o = S.opt;
+  const pad = L.size * 0.7, rad = L.size * 0.5, pa = o.panel === 'none' ? 0 : o.panelAlpha;
+  const first = L.items[0], last = L.items[L.items.length - 1], firstT = T.t[first.idx];
+  if (o.panel === 'box' && pa > 0 && firstT != null && t >= firstT) {       // one box behind the whole stanza
+    const ap = easeOut(clamp01((t - firstT) / 0.4));
+    const top = first.top - pad * 0.8, bot = last.top + last.h + pad * 0.8;
+    const w = Math.min(DW - 40, L.maxLineW + pad * 2);
+    ctx.globalAlpha = alpha * ap * pa; ctx.fillStyle = o.panelColor; rrect(ctx, cx - w / 2, top, w, bot - top, rad); ctx.fill();
+  }
   ctx.font = L.font; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.shadowColor = 'rgba(0,0,0,.65)'; ctx.shadowBlur = 14 * curK; ctx.shadowOffsetY = 2 * curK;
-  ctx.fillStyle = '#fff4dc';
+  const shadow = o.panel === 'none' || pa < 0.35;
   for (const it of L.items) {
     const ti = T.t[it.idx]; if (ti == null || t < ti) continue;
     const ap = easeOut(clamp01((t - ti) / 0.4));
     let bright = 1;
     if (it.idx !== L.lastIdx) { const nt = T.t[it.idx + 1]; if (nt != null) bright = 1 - clamp01((t - nt) / 0.45); }
+    const off = (1 - ap) * 14;
+    if (o.panel === 'lines' && pa > 0) {                                      // a bar behind each line of text
+      ctx.globalAlpha = alpha * ap * pa; ctx.fillStyle = o.panelColor;
+      it.v.forEach((txt, k) => { const w = Math.min(DW - 40, it.ws[k] + pad * 1.6); rrect(ctx, cx - w / 2, it.top + k * L.lh + L.lh * 0.04 + off, w, L.lh * 0.92, rad * 0.8); ctx.fill(); });
+    }
+    if (shadow) { ctx.shadowColor = 'rgba(0,0,0,.65)'; ctx.shadowBlur = 14 * curK; ctx.shadowOffsetY = 2 * curK; }
+    ctx.fillStyle = o.textColor;
     ctx.globalAlpha = alpha * ap * (S.opt.dim + (1 - S.opt.dim) * bright);
     ctx.direction = it.dir;
-    const off = (1 - ap) * 14;
-    it.v.forEach((txt, k) => ctx.fillText(txt, 540, it.top + k * L.lh + L.lh / 2 + off));
+    it.v.forEach((txt, k) => ctx.fillText(txt, cx, it.top + k * L.lh + L.lh / 2 + off));
+    ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
   }
-  ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.shadowOffsetY = 0; ctx.direction = 'ltr';
+  ctx.globalAlpha = 1; ctx.direction = 'ltr';
 }
-function drawLyrics(ctx, t, T) {
+function drawLyrics(ctx, t, T, la = 1) {
   if (!S.lines.length || t < T.first - 0.01) return;
   let s = -1;
   for (let i = 0; i < T.stStart.length; i++) if (T.stStart[i] != null && T.stStart[i] <= t) s = i;
   if (s < 0) return;
-  if (s > 0 && T.stStart[s - 1] != null) { const fo = clamp01((t - T.stStart[s]) / 0.4); if (fo < 1) drawStanza(ctx, s - 1, t, T, 1 - fo); }
-  drawStanza(ctx, s, t, T, 1);
+  if (s > 0 && T.stStart[s - 1] != null) { const fo = clamp01((t - T.stStart[s]) / 0.4); if (fo < 1) drawStanza(ctx, s - 1, t, T, (1 - fo) * la); }
+  drawStanza(ctx, s, t, T, la);
 }
 function drawCredits(ctx, a) {
   const items = [];
@@ -569,20 +611,32 @@ function drawCredits(ctx, a) {
   const H = lhs.reduce((x, y) => x + y, 0) + (items.length - 1) * 8, top0 = 1080 - 52 - H;
   const g = ctx.createLinearGradient(0, top0 - 140, 0, 1080);
   g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(0.45, 'rgba(0,0,0,.62)'); g.addColorStop(1, 'rgba(0,0,0,.85)');
-  ctx.globalAlpha = a; ctx.fillStyle = g; ctx.fillRect(0, top0 - 140, 1080, 1080 - (top0 - 140));
+  ctx.globalAlpha = a; ctx.fillStyle = g; ctx.fillRect(0, top0 - 140, designW(), 1080 - (top0 - 140));
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 10 * curK;
   let y = top0;
-  rows.forEach((r, i) => { ctx.font = r.font; ctx.direction = r.dir; ctx.fillStyle = r.color; ctx.fillText(r.v, 540, y + lhs[i] / 2); y += lhs[i]; });
+  rows.forEach((r, i) => { ctx.font = r.font; ctx.direction = r.dir; ctx.fillStyle = r.color; ctx.fillText(r.v, designW() / 2, y + lhs[i] / 2); y += lhs[i]; });
   ctx.globalAlpha = 1; ctx.shadowColor = 'transparent'; ctx.shadowBlur = 0; ctx.direction = 'ltr';
 }
-function drawFrame(ctx, W, t) {
-  const T = getT(); curK = W / 1080;
+function drawFrame(ctx, W, t) {   // W = pixel HEIGHT; pixel width = W * designW() / 1080
+  const T = getT(), DW = designW(); curK = W / 1080;
   ctx.setTransform(curK, 0, 0, curK, 0, 0); ctx.globalAlpha = 1; ctx.imageSmoothingQuality = 'high';
-  if (bgC) ctx.drawImage(bgC, 0, 0, 1080, 1080); else { ctx.fillStyle = '#14110e'; ctx.fillRect(0, 0, 1080, 1080); }
+  if (coverC && S.opt.bgMode === 'clear') {         // sharp picture stays; lyrics sit on a panel
+    if (DW > 1080 && bgC) ctx.drawImage(bgC, 0, 0, DW, 1080); else { ctx.fillStyle = '#000'; ctx.fillRect(0, 0, DW, 1080); }
+    const x0 = (DW - 1080) / 2;
+    ctx.drawImage(coverC, x0, 0, 1080, 1080);
+    const la = 1 - coverAlpha(t, T);
+    if (la > 0) {
+      if (S.opt.picDim > 0) { ctx.globalAlpha = S.opt.picDim * la; ctx.fillStyle = '#000'; ctx.fillRect(x0, 0, 1080, 1080); ctx.globalAlpha = 1; }
+      drawLyrics(ctx, t, T, la);
+    }
+    if (t >= T.outro) { const a = clamp01((t - T.outro - 0.5) / 0.8); if (a > 0) drawCredits(ctx, a); }
+    return;
+  }
+  if (bgC) ctx.drawImage(bgC, 0, 0, DW, 1080); else { ctx.fillStyle = '#14110e'; ctx.fillRect(0, 0, DW, 1080); }
   const ca = coverC ? coverAlpha(t, T) : 0;
   if (ca < 1) drawLyrics(ctx, t, T);
-  if (ca > 0) { ctx.globalAlpha = ca; ctx.drawImage(coverC, 0, 0, 1080, 1080); ctx.globalAlpha = 1; }
+  if (ca > 0) { ctx.globalAlpha = ca; ctx.drawImage(coverC, (DW - 1080) / 2, 0, 1080, 1080); ctx.globalAlpha = 1; }
   if (coverC && t >= T.outro) { const a = clamp01((t - T.outro - 0.5) / 0.8); if (a > 0) drawCredits(ctx, a); }
 }
 
@@ -621,7 +675,7 @@ function fillUI() {
   $('#lyrics').value = S.lyrics; $('#offset').value = S.opt.offset;
   $('#optSize').value = S.opt.size; $('#optDim').value = S.opt.dim; $('#optIntro').value = S.opt.introHold; $('#optOutroLen').value = S.opt.outroLen;
   $('#optOutro').value = S.opt.outroStart == null ? '' : S.opt.outroStart;
-  $('#fontSel').value = S.opt.font;
+  $('#fontSel').value = S.opt.font; $('#rShape').value = S.opt.shape; fillLookUI();
   $('#sizeV').textContent = S.opt.size; $('#dimV').textContent = Math.round(S.opt.dim * 100) + '%';
   updateLyricsInfo();
 }
@@ -828,6 +882,42 @@ $('#impTimed').onchange = async e => {
    ========================================================= */
 const pv = $('#pv'), pvCtx = pv.getContext('2d');
 $('#fontSel').innerHTML = Object.entries(FONTS).map(([k, v]) => '<option value="' + k + '">' + v.label + '</option>').join('');
+const PRESETS = [
+  { n: 'Dark glass', pc: '#000000', pa: 0.55, tc: '#fff4dc' },
+  { n: 'Light paper', pc: '#f6efe0', pa: 0.85, tc: '#2b2012' },
+  { n: 'Midnight', pc: '#0b1a33', pa: 0.72, tc: '#ffffff' },
+  { n: 'Gold', pc: '#e3b45c', pa: 0.88, tc: '#1a1409' }
+];
+$('#presets').innerHTML = PRESETS.map((p, i) => '<button data-p="' + i + '" style="background:' + p.pc + ';color:' + p.tc + '">' + p.n + '</button>').join('');
+function fillLookUI() {
+  const o = S.opt;
+  $('#optBg').value = o.bgMode; $('#optPanel').value = o.panel; $('#optPanelColor').value = o.panelColor; $('#optTextColor').value = o.textColor;
+  $('#optPanelA').value = o.panelAlpha; $('#panelAV').textContent = Math.round(o.panelAlpha * 100) + '%';
+  $('#optPicDim').value = o.picDim; $('#picDimV').textContent = Math.round(o.picDim * 100) + '%';
+  $('#picDimRow').style.display = o.bgMode === 'clear' ? '' : 'none';
+}
+$('#optBg').onchange = e => { S.opt.bgMode = e.target.value; fillLookUI(); save(); };
+$('#optPanel').onchange = e => { S.opt.panel = e.target.value; save(); };
+$('#optPanelColor').oninput = e => { S.opt.panelColor = e.target.value; save(); };
+$('#optTextColor').oninput = e => { S.opt.textColor = e.target.value; save(); };
+$('#optPanelA').oninput = e => { S.opt.panelAlpha = +e.target.value; $('#panelAV').textContent = Math.round(S.opt.panelAlpha * 100) + '%'; save(); };
+$('#optPicDim').oninput = e => { S.opt.picDim = +e.target.value; $('#picDimV').textContent = Math.round(S.opt.picDim * 100) + '%'; save(); };
+$('#presets').onclick = e => {
+  const b = e.target.closest('button[data-p]'); if (!b) return;
+  const p = PRESETS[+b.dataset.p]; Object.assign(S.opt, { panelColor: p.pc, panelAlpha: p.pa, textColor: p.tc });
+  if (S.opt.panel === 'none') S.opt.panel = 'box';
+  fillLookUI(); save();
+};
+function applyShape() {
+  const wide = S.opt.shape === 'wide';
+  pv.height = 540; pv.width = Math.round(540 * designW() / 1080);
+  for (const id of ['.stage:has(#pv)', '#rStage']) {
+    const el = id === '#rStage' ? $('#rStage') : $('#pv').parentElement;
+    el.style.aspectRatio = wide ? '16/9' : '1/1'; el.style.maxWidth = wide ? '100%' : '540px';
+  }
+  invalidateLayout(); buildAssets();
+}
+$('#rShape').onchange = e => { S.opt.shape = e.target.value; applyShape(); save(); syncPreviewUI(); };
 $('#fontSel').onchange = async e => { S.opt.font = e.target.value; await ensureFonts(); save(); };
 $('#fontFile').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
@@ -978,11 +1068,11 @@ function buildMP4(V, A) {
 }
 // ==/MP4==
 
-async function wcSupport(W, fps, bitrate) {
+async function wcSupport(PW, PH, fps, bitrate) {
   if (!hasWC()) return null;
   for (const hw of ['no-preference', 'prefer-software']) {
-    for (const codec of ['avc1.42E028', 'avc1.42E01F', 'avc1.4D4028', 'avc1.640028']) {
-      const cfg = { codec, width: W, height: W, bitrate, framerate: fps, avc: { format: 'avc' }, latencyMode: 'realtime', hardwareAcceleration: hw };
+    for (const codec of ['avc1.42E028', 'avc1.42E02A', 'avc1.42E01F', 'avc1.4D4028', 'avc1.640028']) {
+      const cfg = { codec, width: PW, height: PH, bitrate, framerate: fps, avc: { format: 'avc' }, latencyMode: 'realtime', hardwareAcceleration: hw };
       try { const r = await VideoEncoder.isConfigSupported(cfg); if (r && r.supported) return cfg; } catch (e) { }
     }
   }
@@ -990,7 +1080,7 @@ async function wcSupport(W, fps, bitrate) {
 }
 async function checkFast() {
   if (!hasWC()) return 'none';
-  const v = await wcSupport(720, 30, 2e6); let a = false;
+  const v = await wcSupport(720, 720, 30, 2e6); let a = false;
   try { a = (await AudioEncoder.isConfigSupported({ codec: 'mp4a.40.2', sampleRate: 44100, numberOfChannels: 2, bitrate: 128000 })).supported; } catch (e) { }
   return v && a ? 'ok' : (v ? 'noaac' : 'novideo');
 }
@@ -999,7 +1089,8 @@ const toU8 = b => b instanceof ArrayBuffer ? new Uint8Array(b.slice(0)) : new Ui
 // returns {blob} | 'cancelled' | undefined (not supported -> use fallback)
 async function renderFast(W, fps, kbps, T, status) {
   fastWhy = '';
-  const vcfg = await wcSupport(W, fps, kbps * 1000);
+  const PW = Math.round(W * designW() / 1080);
+  const vcfg = await wcSupport(PW, W, fps, kbps * 1000);
   if (!vcfg) { fastWhy = hasWC() ? 'no H.264 video encoder' : 'no WebCodecs'; return undefined; }
   const AC = window.AudioContext || window.webkitAudioContext;
   let actx; try { actx = new AC({ sampleRate: 44100 }); } catch (e) { actx = new AC(); }
@@ -1012,7 +1103,7 @@ async function renderFast(W, fps, kbps, T, status) {
   let asup = null; try { asup = await AudioEncoder.isConfigSupported(acfg); } catch (e) { }
   if (!asup || !asup.supported) { fastWhy = 'no AAC audio encoder'; return undefined; }
 
-  const cv = $('#rCanvas'); cv.width = cv.height = W; const ctx = cv.getContext('2d');
+  const cv = $('#rCanvas'); cv.width = PW; cv.height = W; const ctx = cv.getContext('2d');
   const vch = [], ach = []; let avcC = null, asc = null, err = null;
   const venc = new VideoEncoder({
     output: (c, m) => {
@@ -1070,7 +1161,7 @@ async function renderFast(W, fps, kbps, T, status) {
   status('Writing MP4…');
   const tick = 90000 / fps;
   const blob = buildMP4(
-    { w: W, h: W, ts: 90000, desc: avcC, samples: vch.map(c => ({ d: c.d, key: c.key, dur: tick })) },
+    { w: PW, h: W, ts: 90000, desc: avcC, samples: vch.map(c => ({ d: c.d, key: c.key, dur: tick })) },
     { sr, ch, asc, samples: ach.map(c => ({ d: c.d, dur: 1024 })) });
   return { blob, type: 'video/mp4' };
 }
@@ -1083,7 +1174,7 @@ async function renderRealtime(W, fps, kbps, T, status) {
     status('Loading fonts and decoding audio…');
     await ensureFonts();
     const buf = await actx.decodeAudioData(await audioBlob.arrayBuffer());
-    const cv = $('#rCanvas'); cv.width = cv.height = W; const ctx = cv.getContext('2d');
+    const cv = $('#rCanvas'); cv.width = Math.round(W * designW() / 1080); cv.height = W; const ctx = cv.getContext('2d');
     drawFrame(ctx, W, 0);
     const dest = actx.createMediaStreamDestination();
     src = actx.createBufferSource(); src.buffer = buf; src.connect(dest);
@@ -1120,7 +1211,7 @@ async function renderRealtime(W, fps, kbps, T, status) {
 }
 
 function showResult(blob, type, note) {
-  const ext = type.includes('mp4') ? 'mp4' : 'webm', name = safeName() + '.' + ext;
+  const ext = type.includes('mp4') ? 'mp4' : 'webm', name = safeName() + (S.opt.shape === 'wide' ? ' 16x9' : '') + '.' + ext;
   $('#rBar').style.width = '100%';
   $('#rStatus').textContent = 'Done · ' + (blob.size / 1048576).toFixed(1) + ' MB · ' + ext.toUpperCase() + note;
   const url = URL.createObjectURL(blob), box = $('#rResult');
@@ -1142,7 +1233,7 @@ $('#rGo').onclick = async () => {
   if (!T.complete) return toast('Finish tap-sync first — some lines have no time');
   if (!hasWC() && !(window.MediaRecorder && HTMLCanvasElement.prototype.captureStream)) return toast('This browser cannot make video');
   const W = +$('#rRes').value, fps = +$('#rFps').value, small = $('#rQual').value === 's';
-  const kbps = W >= 1080 ? (small ? 1800 : 3500) : (small ? 1200 : 2200);
+  const kbps = Math.round((W >= 1080 ? (small ? 1800 : 3500) : (small ? 1200 : 2200)) * (S.opt.shape === 'wide' ? 1.3 : 1));
   rendering = true; cancelRender = false; aud.pause();
   $('#rGo').disabled = true; $('#rCancel').style.display = ''; $('#rResult').textContent = ''; $('#rBar').style.width = '0';
   $('#rStage').style.display = 'block';
@@ -1193,7 +1284,7 @@ function loop() {
   fillUI();
   const a = await idb.get('audio'); if (a && a.blob) await setAudio(new File([a.blob], a.name || 'audio', { type: a.blob.type }), false);
   const c = await idb.get('cover'); if (c && c.blob) await setCover(new File([c.blob], c.name || 'cover', { type: c.blob.type }), false);
-  invalidateT(); renderList(); updateSyncLive(true);
+  invalidateT(); applyShape(); renderList(); updateSyncLive(true);
   ensureFonts();
   requestAnimationFrame(loop);
 })();
