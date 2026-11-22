@@ -471,7 +471,7 @@ function loadProject(o) {
    ========================================================= */
 let _T = null, _layout = [];
 const invalidateT = () => { _T = null; };
-const invalidateLayout = () => { _layout = []; };
+const invalidateLayout = () => { _layout = []; _uSize = null; };
 function afterLinesChanged() {
   invalidateT(); invalidateLayout(); recomputeNext(); renderList(); updateLyricsInfo(); save();
 }
@@ -605,12 +605,12 @@ function wrapText(text, font, maxW, dir) {
   if (cur) out.push(cur);
   return out;
 }
-function layoutStanza(s) {
+function layoutStanza(s, startSize) {
   const idxs = []; S.lines.forEach((l, i) => { if (l.st === s) idxs.push(i); });
   const R = textRegion(), MAXW = R.maxW, MAXH = R.maxH;
-  let size = S.opt.size, res = null;
+  let size = startSize || S.opt.size, res = null;
   for (; size >= (S.opt.layout === 'split' ? 20 : 28); size -= 2) {
-    const font = '500 ' + size + 'px ' + fontStack(), lh = size * 1.42, gap = size * 0.45;
+    const font = '500 ' + size + 'px ' + fontStack(), lh = size * (S.opt.layout === 'split' ? 1.32 : 1.42), gap = size * 0.4;
     let H = 0, ok = true; const items = [];
     for (const i of idxs) {
       const text = S.lines[i].text, dir = S.lines[i].dir || dirOf(text), v = wrapText(text, font, MAXW, dir);
@@ -627,7 +627,16 @@ function layoutStanza(s) {
   for (const it of res.items) { it.top = y; y += it.h + res.gap; }
   return res;
 }
-const getLayout = s => _layout[s] || (_layout[s] = layoutStanza(s));
+// one font size for the whole song: the largest size at which the biggest stanza still fits
+let _uSize = null;
+function uniformSize() {
+  if (_uSize) return _uSize;
+  const nSt = S.lines.length ? S.lines[S.lines.length - 1].st + 1 : 0;
+  let m = S.opt.size;
+  for (let s = 0; s < nSt; s++) m = Math.min(m, layoutStanza(s).size);
+  return (_uSize = m);
+}
+const getLayout = s => _layout[s] || (_layout[s] = layoutStanza(s, uniformSize()));
 
 /* =========================================================
    DRAWING
