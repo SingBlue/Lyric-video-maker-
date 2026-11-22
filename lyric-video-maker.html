@@ -232,7 +232,7 @@ details summary{cursor:pointer;color:var(--acc);padding:4px 0}
     <select id="fontSel"></select>
     <div class="btns"><span class="file-btn"><button type="button">Use my own font file (TTF/OTF)…</button><input type="file" id="fontFile" accept=".ttf,.otf,.woff,.woff2"></span></div>
     <label>Text size: <span id="sizeV"></span></label>
-    <input type="range" id="optSize" min="36" max="84" step="2">
+    <input type="range" id="optSize" min="30" max="120" step="2">
     <label>Earlier lines brightness: <span id="dimV"></span></label>
     <input type="range" id="optDim" min="0.25" max="0.85" step="0.05">
     <div class="row2">
@@ -469,9 +469,9 @@ function loadProject(o) {
 /* =========================================================
    LINES / TIMING MODEL
    ========================================================= */
-let _T = null, _layout = [];
+let _T = null, _layout = [], _pages = null;
 const invalidateT = () => { _T = null; };
-const invalidateLayout = () => { _layout = []; _uSize = null; };
+const invalidateLayout = () => { _layout = []; _pages = null; _T = null; };
 function afterLinesChanged() {
   invalidateT(); invalidateLayout(); recomputeNext(); renderList(); updateLyricsInfo(); save();
 }
@@ -491,8 +491,8 @@ function computeT() {
     const v = S.lines[i].time; if (v == null) continue;
     t[i] = Math.max(v - (S.opt.lead || 0), prev, 0); prev = t[i]; lastT = t[i]; any = true;
   }
-  const nSt = n ? S.lines[n - 1].st + 1 : 0, stStart = new Array(nSt).fill(null);
-  for (let i = 0; i < n; i++) { const s = S.lines[i].st; if (stStart[s] == null && t[i] != null) stStart[s] = t[i]; }
+  const PG = getPages(), nSt = PG.pages.length, stStart = new Array(nSt).fill(null);
+  for (let i = 0; i < n; i++) { const s = PG.pageOf[i]; if (stStart[s] == null && t[i] != null) stStart[s] = t[i]; }
   const first = any ? t.find(x => x != null) : 0;
   const lim = duration > 0 ? duration : Infinity;
   let auto = Math.max(lastT + 2, Math.min(lim, lastT + S.opt.lastHold));
@@ -605,38 +605,53 @@ function wrapText(text, font, maxW, dir) {
   if (cur) out.push(cur);
   return out;
 }
-function layoutStanza(s, startSize) {
-  const idxs = []; S.lines.forEach((l, i) => { if (l.st === s) idxs.push(i); });
-  const R = textRegion(), MAXW = R.maxW, MAXH = R.maxH;
-  let size = startSize || S.opt.size, res = null;
-  for (; size >= (S.opt.layout === 'split' ? 20 : 28); size -= 2) {
-    const font = '500 ' + size + 'px ' + fontStack(), lh = size * (S.opt.layout === 'split' ? 1.32 : 1.42), gap = size * 0.4;
-    let H = 0, ok = true; const items = [];
-    for (const i of idxs) {
-      const text = S.lines[i].text, dir = S.lines[i].dir || dirOf(text), v = wrapText(text, font, MAXW, dir);
-      mctx.font = font; mctx.direction = dir;
-      if (v.some(x => mctx.measureText(x).width > MAXW + 1)) ok = false;
-      items.push({ idx: i, v, dir, h: v.length * lh, ws: v.map(x => mctx.measureText(x).width) });
-      H += v.length * lh;
-    }
-    H += gap * (idxs.length - 1);
-    res = { cx: R.cx, font, size, lh, gap, H, items, lastIdx: idxs[idxs.length - 1], maxLineW: Math.max(...items.map(it => Math.max(...it.ws))) };
-    if (ok && H <= MAXH) break;
+// Text is shown in "pages": a stanza that is too tall for the space at the chosen size is split into balanced pages.
+function getPages() {
+  if (_pages) return _pages;
+  const R = textRegion(), MAXW = R.maxW, MAXH = R.maxH, split = S.opt.layout === 'split', minS = split ? 20 : 28;
+  const sts = []; S.lines.forEach((l, i) => { (sts[l.st] = sts[l.st] || []).push(i); });
+  let size = S.opt.size, hs, lh, gap;
+  for (;; size -= 2) {
+    const font = '500 ' + size + 'px ' + fontStack(); lh = size * (split ? 1.32 : 1.42); gap = size * 0.4;
+    hs = S.lines.map(l => {
+      const dir = l.dir || dirOf(l.text), v = wrapText(l.text, font, MAXW, dir); mctx.font = font; mctx.direction = dir;
+      return { h: v.length * lh, wide: v.some(x => mctx.measureText(x).width > MAXW + 1) };
+    });
+    if (size <= minS || hs.every(x => !x.wide && x.h <= MAXH)) break;
   }
-  let y = R.cy - res.H / 2;
-  for (const it of res.items) { it.top = y; y += it.h + res.gap; }
+  const groupsFor = (idxs, lim) => {
+    const g = []; let cur = [], H = 0;
+    for (const i of idxs) {
+      const add = hs[i].h + (cur.length ? gap : 0);
+      if (cur.length && H + add > lim) { g.push(cur); cur = []; H = 0; }
+      H += hs[i].h + (cur.length ? gap : 0); cur.push(i);
+    }
+    if (cur.length) g.push(cur); return g;
+  };
+  const pages = [], pageOf = new Array(S.lines.length).fill(0);
+  for (const idxs of sts) {
+    if (!idxs) continue;
+    const total = idxs.reduce((x, i) => x + hs[i].h, 0) + gap * (idxs.length - 1);
+    let groups = groupsFor(idxs, MAXH);
+    if (groups.length > 1) for (let lim = total / groups.length; lim < MAXH; lim += 6) { const g = groupsFor(idxs, lim); if (g.length <= groups.length) { groups = g; break; } }
+    groups.forEach(g => { g.forEach(i => { pageOf[i] = pages.length; }); pages.push({ idxs: g }); });
+  }
+  return (_pages = { pages, pageOf, size, lh, gap });
+}
+function layoutPage(pi) {
+  const P = getPages(), idxs = P.pages[pi].idxs, R = textRegion(), MAXW = R.maxW, size = P.size, lh = P.lh, gap = P.gap;
+  const font = '500 ' + size + 'px ' + fontStack(); let H = 0; const items = [];
+  for (const i of idxs) {
+    const text = S.lines[i].text, dir = S.lines[i].dir || dirOf(text), v = wrapText(text, font, MAXW, dir);
+    mctx.font = font; mctx.direction = dir;
+    items.push({ idx: i, v, dir, h: v.length * lh, ws: v.map(x => mctx.measureText(x).width) }); H += v.length * lh;
+  }
+  H += gap * (idxs.length - 1);
+  const res = { cx: R.cx, font, size, lh, gap, H, items, lastIdx: idxs[idxs.length - 1], maxLineW: Math.max(...items.map(it => Math.max(...it.ws))) };
+  let y = R.cy - H / 2; for (const it of items) { it.top = y; y += it.h + gap; }
   return res;
 }
-// one font size for the whole song: the largest size at which the biggest stanza still fits
-let _uSize = null;
-function uniformSize() {
-  if (_uSize) return _uSize;
-  const nSt = S.lines.length ? S.lines[S.lines.length - 1].st + 1 : 0;
-  let m = S.opt.size;
-  for (let s = 0; s < nSt; s++) m = Math.min(m, layoutStanza(s).size);
-  return (_uSize = m);
-}
-const getLayout = s => _layout[s] || (_layout[s] = layoutStanza(s, uniformSize()));
+const getLayout = s => _layout[s] || (_layout[s] = layoutPage(s));
 
 /* =========================================================
    DRAWING
