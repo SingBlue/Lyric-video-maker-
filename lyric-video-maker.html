@@ -212,7 +212,7 @@ details summary{cursor:pointer;color:var(--acc);padding:4px 0}
     <div id="splitRow"><label>The picture is on the</label>
       <select id="optSplitPos"><option value="top">Top (words below)</option><option value="bottom">Bottom (words above)</option><option value="left">Left (words on the right)</option><option value="right">Right (words on the left)</option></select></div>
     <div id="fitRow"><label>Picture fit</label>
-      <select id="optFit"><option value="fill">Fill the space (crops the edges)</option><option value="fit">Show the whole picture</option></select></div>
+      <select id="optFit"><option value="fit">Show the whole picture</option><option value="fill">Fill the space (crops the edges)</option></select></div>
     <div id="picDimRow"><label>Darken the picture while words show: <span id="picDimV"></span></label><input type="range" id="optPicDim" min="0" max="0.6" step="0.05"></div>
     <div id="panelRow"><label>Panel behind the words</label>
     <select id="optPanel"><option value="box">One box per stanza</option><option value="lines">A bar behind each line</option><option value="none">No panel</option></select></div>
@@ -237,6 +237,7 @@ details summary{cursor:pointer;color:var(--acc);padding:4px 0}
     <input type="range" id="optDim" min="0.25" max="0.85" step="0.05">
     <div class="row2">
       <div><label>Cover holds for (s)</label><input type="number" id="optIntro" min="0" max="30" step="0.5"></div>
+      <div><label>Show words early by (s)</label><input type="number" id="optLead" min="0" max="3" step="0.1"></div>
       <div><label>Closing card length (s)</label><input type="number" id="optOutroLen" min="2" max="30" step="0.5"></div>
     </div>
     <label>Closing card starts at (s) <span class="mut" id="outroAuto"></span></label>
@@ -392,7 +393,7 @@ const aud = $('#aud');
 const S = {
   title: '', artist: 'Songs of Wisdom · Jonathan Sigal', credit: '', email: '',
   lyrics: '', lines: [], nextIdx: 0,
-  opt: { shape: 'sq', layout: 'full', splitPos: 'top', fit: 'fill', slideCover: true, slideLoop: true, coverDur: 15, picDim: 0, panel: 'box', panelColor: '#000000', panelAlpha: 0.55, textColor: '#fff4dc', font: 'classic', size: 60, dim: 0.5, introHold: 3, outroStart: null, outroLen: 6, lastHold: 8, offset: 0.12 }
+  opt: { shape: 'sq', layout: 'full', splitPos: 'top', fit: 'fit', slideCover: true, slideLoop: true, coverDur: 15, picDim: 0, panel: 'box', panelColor: '#000000', panelAlpha: 0.55, textColor: '#fff4dc', font: 'classic', size: 60, dim: 0.5, introHold: 3, outroStart: null, outroLen: 6, lastHold: 8, offset: 0.12, lead: 0.4 }
 };
 let audioBlob = null, audioName = '', audioUrl = null, duration = 0;
 let coverBlob = null, coverImg = null, coverC = null, coverPic = null, coverName = '', coverUrl = '';
@@ -458,7 +459,7 @@ function loadProject(o) {
   if (o.artist != null) S.artist = o.artist;
   if (o.credit != null) S.credit = o.credit;
   if (o.email != null) S.email = o.email;
-  if (o.opt) { Object.assign(S.opt, o.opt); if (o.opt.bgMode === 'blur' && !o.opt.layout) S.opt.layout = 'blur'; delete S.opt.bgMode; }
+  if (o.opt) { Object.assign(S.opt, o.opt); if (o.opt.bgMode === 'blur' && !o.opt.layout) S.opt.layout = 'blur'; delete S.opt.bgMode; if (!o.opt.fitV2) { S.opt.fit = 'fit'; } S.opt.fitV2 = true; }
   if (o.lyrics != null) S.lyrics = o.lyrics;
   S.lines = parseLyrics(S.lyrics);
   if (o.lines) carryTimes(o.lines.map((l, i) => ({ text: l.text, time: l.time })), S.lines);
@@ -488,7 +489,7 @@ function computeT() {
   let prev = 0, lastT = 0, any = false;
   for (let i = 0; i < n; i++) {
     const v = S.lines[i].time; if (v == null) continue;
-    t[i] = Math.max(v, prev); prev = t[i]; lastT = t[i]; any = true;
+    t[i] = Math.max(v - (S.opt.lead || 0), prev, 0); prev = t[i]; lastT = t[i]; any = true;
   }
   const nSt = n ? S.lines[n - 1].st + 1 : 0, stStart = new Array(nSt).fill(null);
   for (let i = 0; i < n; i++) { const s = S.lines[i].st; if (stStart[s] == null && t[i] != null) stStart[s] = t[i]; }
@@ -766,7 +767,7 @@ $$('[data-go]').forEach(b => b.addEventListener('click', () => go(b.dataset.go))
 function fillUI() {
   $('#title').value = S.title; $('#artist').value = S.artist; $('#credit').value = S.credit; $('#email').value = S.email;
   $('#lyrics').value = S.lyrics; $('#offset').value = S.opt.offset;
-  $('#optSize').value = S.opt.size; $('#optDim').value = S.opt.dim; $('#optIntro').value = S.opt.introHold; $('#optOutroLen').value = S.opt.outroLen;
+  $('#optLead').value = S.opt.lead; $('#optSize').value = S.opt.size; $('#optDim').value = S.opt.dim; $('#optIntro').value = S.opt.introHold; $('#optOutroLen').value = S.opt.outroLen;
   $('#optOutro').value = S.opt.outroStart == null ? '' : S.opt.outroStart;
   $('#fontSel').value = S.opt.font; $('#rShape').value = S.opt.shape; fillLookUI();
   $('#sizeV').textContent = S.opt.size; $('#dimV').textContent = Math.round(S.opt.dim * 100) + '%';
@@ -1093,6 +1094,7 @@ $('#fontFile').onchange = async e => {
 };
 $('#optSize').oninput = e => { S.opt.size = +e.target.value; $('#sizeV').textContent = S.opt.size; invalidateLayout(); save(); };
 $('#optDim').oninput = e => { S.opt.dim = +e.target.value; $('#dimV').textContent = Math.round(S.opt.dim * 100) + '%'; save(); };
+$('#optLead').oninput = e => { const v = parseFloat(e.target.value); if (isFinite(v)) { S.opt.lead = Math.max(0, Math.min(3, v)); invalidateT(); invalidateLayout(); save(); } };
 $('#optIntro').oninput = e => { const v = parseFloat(e.target.value); if (isFinite(v)) { S.opt.introHold = v; invalidateT(); save(); } };
 $('#optOutroLen').oninput = e => { const v = parseFloat(e.target.value); if (isFinite(v)) { S.opt.outroLen = v; invalidateT(); save(); syncPreviewUI(); } };
 $('#optOutro').oninput = e => { const v = parseFloat(e.target.value); S.opt.outroStart = isFinite(v) ? v : null; invalidateT(); save(); syncPreviewUI(); };
