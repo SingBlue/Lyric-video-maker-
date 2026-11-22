@@ -165,7 +165,8 @@ details summary{cursor:pointer;color:var(--acc);padding:4px 0}
       <button id="expSrt">Export .srt</button>
       <span class="file-btn"><button type="button">Import .lrc / .srt</button><input type="file" id="impTimed" accept=".lrc,.srt,.txt"></span>
     </div>
-    <p class="mut" style="margin:6px 0 0">Timings also auto-save in this browser.</p>
+    <div class="btns"><button class="dng" id="clearTimes">Clear all timings (keep lyrics) and start over</button></div>
+    <p class="mut" style="margin:6px 0 0">Timings also auto-save in this browser. Tip: use “Save timings (.json)” first if you may want them back.</p>
   </div>
   <div class="btns"><button class="pri" data-go="preview">Next: preview &amp; render →</button></div>
 </section>
@@ -843,6 +844,16 @@ function updateSyncLive(force) {
 }
 
 /* ---------- timings I/O ---------- */
+$('#clearTimes').onclick = () => {
+  const n = S.lines.filter(l => l.time != null).length;
+  if (!n) return toast('No timings to clear');
+  if (!confirm('Clear all ' + n + ' timings? Your lyrics stay. This cannot be undone.')) return;
+  aud.pause(); S.lines.forEach(l => { l.time = null; });
+  S.opt.outroStart = null; selIdx = null;
+  recomputeNext(); invalidateT(); save(); renderList(); updateLyricsInfo(); updateSyncLive(true); seek(0);
+  $('#optOutro').value = '';
+  toast('Timings cleared — press play and start tapping');
+};
 $('#saveJson').onclick = () => download(new Blob([projectJSON()], { type: 'application/json' }), safeName() + '.timings.json');
 $('#loadJson').onchange = async e => {
   const f = e.target.files[0]; e.target.value = ''; if (!f) return;
